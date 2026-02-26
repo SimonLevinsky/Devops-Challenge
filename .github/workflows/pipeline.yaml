@@ -82,6 +82,21 @@ jobs:
       - name: Connect to vind cluster
         run: vcluster connect ci-cluster --background-proxy
 
+      - name: Wait for node to be ready
+        run: |
+          echo "Waiting for node to join cluster..."
+          for i in $(seq 1 30); do
+            NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l)
+            if [ "$NODE_COUNT" -gt 0 ]; then
+              echo "✅ Node is registered!"
+              kubectl get nodes
+              break
+            fi
+            echo "⏳ Attempt $i: No nodes yet, waiting 10s..."
+            sleep 10
+          done
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+
       - name: Create GHCR image pull secret
         run: |
           kubectl create secret docker-registry ghcr-secret \
@@ -144,6 +159,8 @@ jobs:
       # ── Test ──────────────────────────────────────────────────
       - name: Get node IP and test
         run: |
-          NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+          echo "=== Nodes ==="
+          kubectl get nodes -o wide
+          NODE_IP=$(docker inspect vcluster.cp.ci-cluster --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
           echo "Node IP: $NODE_IP"
           python3 scripts/test-app.py http://$NODE_IP:30080
