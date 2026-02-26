@@ -1,11 +1,28 @@
-apiVersion: v2
-name: app
-description: Spring Boot + MySQL Helm Chart
-type: application
-version: 0.1.0
-appVersion: "1.0.0"
+replicaCount: 1
 
-dependencies:
-  - name: mysql
-    version: "11.1.2"
-    repository: "https://charts.bitnami.com/bitnami"
+image:
+  repository: ghcr.io/simonlevinsky/app
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: NodePort
+  port: 8080
+  nodePort: 30080
+
+db:
+  host: app-mysql
+  port: 3306
+  name: appdb
+  user: appuser
+  password: apppassword
+
+mysql:
+  auth:
+    rootPassword: rootpassword
+    database: appdb
+    username: appuser
+    password: apppassword
+  primary:
+    persistence:
+      enabled: false
