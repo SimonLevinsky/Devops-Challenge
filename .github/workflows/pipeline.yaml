@@ -89,6 +89,9 @@ jobs:
       - name: Add Bitnami Helm repo
         run: helm repo add bitnami https://charts.bitnami.com/bitnami && helm repo update
 
+      - name: Update Helm dependencies
+        run: helm dependency update ./helm/app
+
       - name: Deploy Helm chart
         run: |
           helm upgrade --install app ./helm/app \
