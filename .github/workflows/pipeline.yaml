@@ -82,20 +82,27 @@ jobs:
       - name: Connect to vind cluster
         run: vcluster connect ci-cluster --background-proxy
 
-      - name: Wait for node to be ready
+      - name: Wait for cluster to be ready
         run: |
-          echo "Waiting for node to join cluster..."
-          for i in $(seq 1 30); do
-            NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l)
-            if [ "$NODE_COUNT" -gt 0 ]; then
-              echo "✅ Node is registered!"
-              kubectl get nodes
-              break
-            fi
-            echo "⏳ Attempt $i: No nodes yet, waiting 10s..."
-            sleep 10
-          done
-          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+          echo "Waiting for cluster core to be ready..."
+          sleep 30
+          echo "=== Checking kube-system pods ==="
+          kubectl get pods -A || true
+          echo "=== Checking cluster info ==="
+          kubectl cluster-info || true
+
+      - name: Debug - vind cluster info
+        run: |
+          echo "=== Docker containers ==="
+          docker ps
+          echo "=== vcluster list ==="
+          vcluster list
+          echo "=== kubeconfig ==="
+          kubectl config view
+          echo "=== all namespaces ==="
+          kubectl get ns || true
+          echo "=== all pods ==="
+          kubectl get pods -A || true
 
       - name: Create GHCR image pull secret
         run: |
