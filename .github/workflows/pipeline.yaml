@@ -89,6 +89,15 @@ jobs:
       - name: Add Bitnami Helm repo
         run: helm repo add bitnami https://charts.bitnami.com/bitnami && helm repo update
 
+      - name: Debug - Show file structure
+        run: |
+          echo "Current directory:"
+          pwd
+          echo "Root contents:"
+          ls -la
+          echo "Find Chart.yaml:"
+          find . -name "Chart.yaml"
+
       - name: Update Helm dependencies
         run: helm dependency update ./helm/app
 
