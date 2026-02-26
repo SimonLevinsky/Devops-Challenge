@@ -82,6 +82,13 @@ jobs:
       - name: Connect to vind cluster
         run: vcluster connect ci-cluster --background-proxy
 
+      - name: Create GHCR image pull secret
+        run: |
+          kubectl create secret docker-registry ghcr-secret \
+            --docker-server=ghcr.io \
+            --docker-username=${{ github.actor }} \
+            --docker-password=${{ secrets.GITHUB_TOKEN }}
+
       - name: Verify cluster is running
         run: kubectl get nodes
 
@@ -103,15 +110,20 @@ jobs:
             --debug || true
 
       - name: Debug - Check pod status
+        if: always()
         run: |
           echo "=== All Pods ==="
-          kubectl get pods -A
-          echo "=== App Pod Logs ==="
-          kubectl logs -l app=app-app --tail=50 || true
-          echo "=== Pod Describe ==="
-          kubectl describe pods -l app=app-app || true
+          kubectl get pods -A --show-labels
+          echo "=== All Services ==="
+          kubectl get svc -A
+          echo "=== Describe ALL pods ==="
+          kubectl describe pods -A
+          echo "=== Helm Status ==="
+          helm status app || true
+          echo "=== Helm History ==="
+          helm history app || true
           echo "=== Events ==="
-          kubectl get events --sort-by='.lastTimestamp' || true
+          kubectl get events --sort-by='.lastTimestamp' -A
 
       # ── Test ──────────────────────────────────────────────────
       - name: Run application test
