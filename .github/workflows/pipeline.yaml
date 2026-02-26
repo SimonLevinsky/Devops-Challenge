@@ -127,6 +127,23 @@ jobs:
           echo "=== Events ==="
           kubectl get events --sort-by='.lastTimestamp' -A
 
+      - name: Debug - Network info
+        if: always()
+        run: |
+          echo "=== Docker containers ==="
+          docker ps
+          echo "=== Docker networks ==="
+          docker network ls
+          echo "=== vind container IP ==="
+          docker inspect vcluster.cp.ci-cluster | grep IPAddress || true
+          echo "=== Kubernetes nodes ==="
+          kubectl get nodes -o wide
+          echo "=== All services with ports ==="
+          kubectl get svc -A
+
       # ── Test ──────────────────────────────────────────────────
-      - name: Run application test
-        run: python3 scripts/test-app.py http://localhost:30080
+      - name: Get node IP and test
+        run: |
+          NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+          echo "Node IP: $NODE_IP"
+          python3 scripts/test-app.py http://$NODE_IP:30080
