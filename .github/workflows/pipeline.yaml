@@ -77,7 +77,18 @@ jobs:
         run: vcluster use driver docker
 
       - name: Create vind cluster
-        run: vcluster create ci-cluster --connect=false
+        run: |
+          cat <<EOF > /tmp/vcluster-config.yaml
+          controlPlane:
+            distro:
+              k8s:
+                enabled: true
+          experimental:
+            docker:
+              nodes:
+                - name: worker-1
+          EOF
+          vcluster create ci-cluster --connect=false --config /tmp/vcluster-config.yaml
 
       - name: Connect to vind cluster
         run: vcluster connect ci-cluster --background-proxy
