@@ -1,0 +1,27 @@
+replicaCount: 1
+
+image:
+  repository: your-dockerhub-username/app
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+
+db:
+  host: app-mysql
+  port: 3306
+  name: appdb
+  user: appuser
+  password: apppassword
+
+mysql:
+  auth:
+    rootPassword: rootpassword
+    database: appdb
+    username: appuser
+    password: apppassword
+  primary:
+    persistence:
+      enabled: false
