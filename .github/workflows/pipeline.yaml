@@ -8,7 +8,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/app
 
 jobs:
   build-and-push:
@@ -21,6 +20,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set lowercase image name
+        id: image
+        run: echo "IMAGE_NAME=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')/app" >> $GITHUB_OUTPUT
 
       - name: Set image tag based on branch
         id: tag
@@ -45,7 +48,7 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.IMAGE_TAG }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ steps.image.outputs.IMAGE_NAME }}:${{ steps.tag.outputs.IMAGE_TAG }}
+            ${{ env.REGISTRY }}/${{ steps.image.outputs.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
