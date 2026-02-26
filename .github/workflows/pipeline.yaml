@@ -105,9 +105,11 @@ jobs:
             --set image.repository=${{ env.REGISTRY }}/${{ steps.image.outputs.IMAGE_NAME }} \
             --set image.tag=${{ steps.tag.outputs.IMAGE_TAG }} \
             --set image.pullPolicy=Always \
-            --wait \
             --timeout 10m \
-            --debug || true
+            --debug
+
+      - name: Wait 30 seconds for pods to start
+        run: sleep 30
 
       - name: Debug - Check pod status
         if: always()
