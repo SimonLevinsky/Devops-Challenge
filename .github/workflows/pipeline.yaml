@@ -78,7 +78,7 @@ jobs:
 
       - name: Create vind cluster
         run: |
-          cat <<EOF > /tmp/vcluster-config.yaml
+          cat > /tmp/vcluster-config.yaml << 'EOF'
           controlPlane:
             distro:
               k8s:
@@ -88,10 +88,22 @@ jobs:
               nodes:
                 - name: worker-1
           EOF
+          echo "=== Config file ==="
+          cat /tmp/vcluster-config.yaml
           vcluster create ci-cluster --connect=false --config /tmp/vcluster-config.yaml
+          echo "=== vcluster list ==="
+          vcluster list
+          echo "=== Docker containers after create ==="
+          docker ps
 
       - name: Connect to vind cluster
-        run: vcluster connect ci-cluster --background-proxy
+        run: |
+          vcluster connect ci-cluster --background-proxy
+          sleep 10
+          echo "=== kubeconfig after connect ==="
+          kubectl config view
+          echo "=== test kubectl ==="
+          kubectl get ns || true
 
       - name: Wait for cluster to be ready
         run: |
@@ -101,19 +113,6 @@ jobs:
           kubectl get pods -A || true
           echo "=== Checking cluster info ==="
           kubectl cluster-info || true
-
-      - name: Debug - vind cluster info
-        run: |
-          echo "=== Docker containers ==="
-          docker ps
-          echo "=== vcluster list ==="
-          vcluster list
-          echo "=== kubeconfig ==="
-          kubectl config view
-          echo "=== all namespaces ==="
-          kubectl get ns || true
-          echo "=== all pods ==="
-          kubectl get pods -A || true
 
       - name: Create GHCR image pull secret
         run: |
