@@ -78,23 +78,13 @@ jobs:
 
       - name: Create vind cluster
         run: |
-          cat > /tmp/vcluster-config.yaml << 'EOF'
-          controlPlane:
-            distro:
-              k8s:
-                enabled: true
-          experimental:
-            docker:
-              nodes:
-                - name: worker-1
-          EOF
-          echo "=== Config file ==="
-          cat /tmp/vcluster-config.yaml
-          vcluster create ci-cluster --connect=false --config /tmp/vcluster-config.yaml
+          echo "=== Creating cluster ==="
+          vcluster create ci-cluster --connect=false
+          echo "=== Exit code: $? ==="
           echo "=== vcluster list ==="
           vcluster list
           echo "=== Docker containers after create ==="
-          docker ps
+          docker ps -a
 
       - name: Connect to vind cluster
         run: |
