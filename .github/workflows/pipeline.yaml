@@ -55,11 +55,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Re-tag and push MySQL image to GHCR
+      - name: Push MySQL image to GHCR
         run: |
           OWNER=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')
-          docker pull bitnami/mysql:8.0
-          docker tag bitnami/mysql:8.0 ghcr.io/${OWNER}/mysql:8.0
+          docker pull mysql:8.0
+          docker tag mysql:8.0 ghcr.io/${OWNER}/mysql:8.0
           docker push ghcr.io/${OWNER}/mysql:8.0
 
       # ── Install tools ─────────────────────────────────────────
@@ -143,12 +143,6 @@ jobs:
             --docker-password=${{ secrets.GITHUB_TOKEN }}
 
       # ── Deploy ────────────────────────────────────────────────
-      - name: Add Bitnami Helm repo
-        run: helm repo add bitnami https://charts.bitnami.com/bitnami && helm repo update
-
-      - name: Update Helm dependencies
-        run: helm dependency update ./helm/app
-
       - name: Deploy Helm chart
         run: |
           OWNER=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')
@@ -156,10 +150,7 @@ jobs:
             --set image.repository=${{ env.REGISTRY }}/${{ steps.image.outputs.IMAGE_NAME }} \
             --set image.tag=${{ steps.tag.outputs.IMAGE_TAG }} \
             --set image.pullPolicy=IfNotPresent \
-            --set mysql.image.registry=ghcr.io \
-            --set mysql.image.repository=${OWNER}/mysql \
-            --set mysql.image.tag=8.0 \
-            --set mysql.image.pullSecrets[0]=ghcr-secret \
+            --set mysql.image=ghcr.io/${OWNER}/mysql:8.0 \
             --wait \
             --timeout 10m
 
@@ -169,7 +160,7 @@ jobs:
           echo "=== Pods ==="
           kubectl get pods -A
           echo "=== MySQL pod describe ==="
-          kubectl describe pod -l app.kubernetes.io/name=mysql || true
+          kubectl describe pod -l app=mysql || true
           echo "=== App pod logs ==="
           kubectl logs -l app=app-app --tail=50 || true
           echo "=== Events ==="

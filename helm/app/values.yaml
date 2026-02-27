@@ -11,22 +11,9 @@ service:
   nodePort: 30080
 
 db:
-  host: app-mysql
+  host: mysql
   port: 3306
   name: appdb
   user: appuser
   password: apppassword
-
-mysql:
-  image:
-    registry: docker.io
-    repository: bitnami/mysql
-    tag: "8.0.36-debian-12-r4"
-  auth:
-    rootPassword: rootpassword
-    database: appdb
-    username: appuser
-    password: apppassword
-  primary:
-    persistence:
-      enabled: false
+  rootPassword: rootpassword
