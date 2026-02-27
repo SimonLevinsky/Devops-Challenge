@@ -83,20 +83,30 @@ jobs:
       - name: Set Docker as default driver
         run: vcluster use driver docker
 
-      - name: Create vind cluster
+      - name: Write vcluster values file
         run: |
-          cat > /tmp/vcluster-values.yaml << 'EOF'
-          experimental:
+          python3 << 'PYEOF'
+          content = """experimental:
             docker:
               nodes:
-                - name: "worker-1"
-          EOF
+                - name: worker-1
+          """
+          with open('/tmp/vcluster-values.yaml', 'w') as f:
+              f.write(content)
+          PYEOF
           echo "=== Values file ==="
           cat /tmp/vcluster-values.yaml
+
+      - name: Create vind cluster
+        run: |
           vcluster create ci-cluster --connect=false --values /tmp/vcluster-values.yaml
+          echo "=== vcluster list ==="
+          vcluster list
           echo "=== Docker containers after create ==="
           docker ps -a
-          echo "=== Configure containerd mirror on worker node ==="
+
+      - name: Configure containerd mirror on worker node
+        run: |
           docker exec vcluster.node.ci-cluster.worker-1 bash -c '
             mkdir -p /etc/containerd/certs.d/docker.io
             cat > /etc/containerd/certs.d/docker.io/hosts.toml << TOML
@@ -111,9 +121,7 @@ jobs:
         run: |
           vcluster connect ci-cluster --background-proxy
           sleep 15
-          echo "=== kubeconfig after connect ==="
           kubectl config view
-          echo "=== namespaces ==="
           kubectl get ns || true
 
       - name: Wait for node to be ready
@@ -155,7 +163,7 @@ jobs:
             --timeout 10m \
             --debug || true
 
-      - name: Check pods immediately after deploy
+      - name: Check pods after deploy
         run: |
           echo "=== Pods ==="
           kubectl get pods -A
