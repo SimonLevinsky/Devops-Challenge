@@ -62,34 +62,58 @@ jobs:
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/kubectl
 
-      - name: Install KinD
+      - name: Install vCluster CLI (vind)
         run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
+          curl -L -o vcluster "https://github.com/loft-sh/vcluster/releases/latest/download/vcluster-linux-amd64"
+          chmod +x vcluster
+          sudo mv vcluster /usr/local/bin/vcluster
 
       - name: Install Helm
         run: |
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
       # ── Provision Cluster ─────────────────────────────────────
-      - name: Create KinD cluster
-        run: |
-          cat > /tmp/kind-config.yaml << 'EOF'
-          kind: Cluster
-          apiVersion: kind.x-k8s.io/v1alpha4
-          nodes:
-            - role: control-plane
-              extraPortMappings:
-                - containerPort: 30080
-                  hostPort: 30080
-                  protocol: TCP
-          EOF
-          kind create cluster --config /tmp/kind-config.yaml
-          kubectl get nodes
+      - name: Set Docker as default driver
+        run: vcluster use driver docker
 
-      - name: Wait for cluster to be ready
+      - name: Create vind cluster
         run: |
+          cat > /tmp/vcluster-values.yaml << 'EOF'
+          experimental:
+            docker:
+              nodes:
+                - name: "worker-1"
+          EOF
+          echo "=== Values file ==="
+          cat /tmp/vcluster-values.yaml
+          vcluster create ci-cluster --connect=false --values /tmp/vcluster-values.yaml
+          echo "=== vcluster list ==="
+          vcluster list
+          echo "=== Docker containers after create ==="
+          docker ps -a
+
+      - name: Connect to vind cluster
+        run: |
+          vcluster connect ci-cluster --background-proxy
+          sleep 15
+          echo "=== kubeconfig after connect ==="
+          kubectl config view
+          echo "=== namespaces ==="
+          kubectl get ns || true
+
+      - name: Wait for node to be ready
+        run: |
+          echo "Waiting for worker node..."
+          for i in $(seq 1 30); do
+            NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l)
+            if [ "$NODE_COUNT" -gt 0 ]; then
+              echo "✅ Node registered!"
+              kubectl get nodes
+              break
+            fi
+            echo "⏳ Attempt $i: No nodes yet, waiting 10s..."
+            sleep 10
+          done
           kubectl wait --for=condition=Ready nodes --all --timeout=300s
           kubectl get nodes
 
@@ -116,6 +140,31 @@ jobs:
             --wait \
             --timeout 10m
 
+      - name: Debug - Check pod status
+        if: always()
+        run: |
+          echo "=== All Pods ==="
+          kubectl get pods -A --show-labels
+          echo "=== All Services ==="
+          kubectl get svc -A
+          echo "=== Describe ALL pods ==="
+          kubectl describe pods -A
+          echo "=== Events ==="
+          kubectl get events --sort-by='.lastTimestamp' -A
+
+      - name: Debug - Network info
+        if: always()
+        run: |
+          echo "=== Docker containers ==="
+          docker ps
+          echo "=== vind container IP ==="
+          docker inspect vcluster.cp.ci-cluster | grep IPAddress || true
+          echo "=== Kubernetes nodes ==="
+          kubectl get nodes -o wide
+
       # ── Test ──────────────────────────────────────────────────
-      - name: Run application test
-        run: python3 scripts/test-app.py http://localhost:30080
+      - name: Get node IP and test
+        run: |
+          NODE_IP=$(docker inspect vcluster.node.ci-cluster.worker-1 --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+          echo "Worker Node IP: $NODE_IP"
+          python3 scripts/test-app.py http://$NODE_IP:30080
