@@ -78,23 +78,7 @@ jobs:
 
       - name: Create vind cluster
         run: |
-          python3 -c "
-          import yaml
-          config = {
-            'experimental': {
-              'docker': {
-                'nodes': [
-                  {'name': 'worker-1'}
-                ]
-              }
-            }
-          }
-          with open('/tmp/vcluster-config.yaml', 'w') as f:
-            yaml.dump(config, f)
-          "
-          echo "=== Config file ==="
-          cat /tmp/vcluster-config.yaml
-          vcluster create ci-cluster --connect=false --config /tmp/vcluster-config.yaml
+          vcluster create ci-cluster --connect=false --add-node worker-1
           echo "=== vcluster list ==="
           vcluster list
           echo "=== Docker containers after create ==="
