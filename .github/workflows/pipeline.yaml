@@ -78,9 +78,15 @@ jobs:
 
       - name: Create vind cluster
         run: |
-          echo "=== Creating cluster ==="
-          vcluster create ci-cluster --connect=false
-          echo "=== Exit code: $? ==="
+          cat > /tmp/vcluster-config.yaml << 'EOF'
+          experimental:
+            docker:
+              nodes:
+                - name: worker-1
+          EOF
+          echo "=== Config file ==="
+          cat /tmp/vcluster-config.yaml
+          vcluster create ci-cluster --connect=false --config /tmp/vcluster-config.yaml
           echo "=== vcluster list ==="
           vcluster list
           echo "=== Docker containers after create ==="
@@ -97,12 +103,19 @@ jobs:
 
       - name: Wait for cluster to be ready
         run: |
-          echo "Waiting for cluster core to be ready..."
-          sleep 30
-          echo "=== Checking kube-system pods ==="
+          echo "Waiting for cluster to be ready..."
+          for i in $(seq 1 30); do
+            NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l)
+            if [ "$NODE_COUNT" -gt 0 ]; then
+              echo "✅ Nodes are registered!"
+              kubectl get nodes
+              break
+            fi
+            echo "⏳ Attempt $i: No nodes yet, waiting 10s..."
+            sleep 10
+          done
+          kubectl get nodes
           kubectl get pods -A || true
-          echo "=== Checking cluster info ==="
-          kubectl cluster-info || true
 
       - name: Create GHCR image pull secret
         run: |
@@ -112,7 +125,9 @@ jobs:
             --docker-password=${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify cluster is running
-        run: kubectl get nodes
+        run: |
+          kubectl get nodes
+          docker ps -a
 
       # ── Deploy ────────────────────────────────────────────────
       - name: Add Bitnami Helm repo
