@@ -73,6 +73,14 @@ jobs:
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
       # ── Provision Cluster ─────────────────────────────────────
+      - name: Load required kernel modules
+        run: |
+          sudo modprobe overlay || true
+          sudo modprobe bridge || true
+          sudo modprobe br_netfilter || true
+          echo "=== Loaded modules ==="
+          lsmod | grep -E "overlay|bridge|br_netfilter" || true
+
       - name: Set Docker as default driver
         run: vcluster use driver docker
 
