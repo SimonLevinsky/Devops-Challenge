@@ -11,7 +11,6 @@ env:
 
 jobs:
   pipeline:
-    name: Build, Deploy & Test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -22,49 +21,36 @@ jobs:
 # ─────────────────────────────────────────────
 # Checkout
 # ─────────────────────────────────────────────
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
 # ─────────────────────────────────────────────
-# Image Name & Tag
+# Build & Push Image
 # ─────────────────────────────────────────────
-      - name: Set lowercase image name
-        id: image
+      - name: Set image info
+        id: vars
         run: |
-          echo "IMAGE_NAME=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')/app" >> $GITHUB_OUTPUT
-
-      - name: Set image tag based on branch
-        id: tag
-        run: |
-          BRANCH=${GITHUB_REF#refs/heads/}
+          IMAGE_NAME=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')/app
           SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
-          echo "IMAGE_TAG=${BRANCH}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_OUTPUT
+          echo "IMAGE_TAG=${GITHUB_REF_NAME}-${SHORT_SHA}" >> $GITHUB_OUTPUT
 
-# ─────────────────────────────────────────────
-# Docker Build & Push
-# ─────────────────────────────────────────────
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+      - uses: docker/build-push-action@v5
         with:
           context: ./app
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ steps.image.outputs.IMAGE_NAME }}:${{ steps.tag.outputs.IMAGE_TAG }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            ghcr.io/${{ steps.vars.outputs.IMAGE_NAME }}:${{ steps.vars.outputs.IMAGE_TAG }}
 
 # ─────────────────────────────────────────────
-# Install kubectl, Helm & vCluster
+# Install Tools
 # ─────────────────────────────────────────────
       - name: Install kubectl
         run: |
@@ -77,31 +63,29 @@ jobs:
 
       - name: Install vCluster
         run: |
-          curl -L -o vcluster "https://github.com/loft-sh/vcluster/releases/latest/download/vcluster-linux-amd64"
+          curl -L -o vcluster https://github.com/loft-sh/vcluster/releases/latest/download/vcluster-linux-amd64
           chmod +x vcluster
           sudo mv vcluster /usr/local/bin/
 
 # ─────────────────────────────────────────────
-# Create vCluster (Docker driver)
+# Create & Connect vCluster (PERSISTENT)
 # ─────────────────────────────────────────────
       - name: Use Docker driver
         run: vcluster use driver docker
 
       - name: Create cluster
-        run: vcluster create ci-cluster --connect=false --wait
+        run: vcluster create ci-cluster --wait
 
-      - name: Generate kubeconfig
+      - name: Connect cluster (persistent kubeconfig)
         run: |
-          vcluster connect ci-cluster \
-            --update-current=false \
-            --kube-config vcluster.yaml
+          vcluster connect ci-cluster --update-current
+          kubectl cluster-info
+          kubectl get nodes
 
 # ─────────────────────────────────────────────
 # Create GHCR Secret
 # ─────────────────────────────────────────────
-      - name: Create GHCR image pull secret
-        env:
-          KUBECONFIG: ${{ github.workspace }}/vcluster.yaml
+      - name: Create image pull secret
         run: |
           kubectl create secret docker-registry ghcr-secret \
             --docker-server=ghcr.io \
@@ -109,34 +93,29 @@ jobs:
             --docker-password=${{ secrets.GITHUB_TOKEN }}
 
 # ─────────────────────────────────────────────
-# Helm Deploy
+# Deploy with Helm
 # ─────────────────────────────────────────────
       - name: Add Bitnami repo
         run: |
           helm repo add bitnami https://charts.bitnami.com/bitnami
           helm repo update
 
-      - name: Update Helm dependencies
+      - name: Update dependencies
         run: helm dependency update ./helm/app
 
-      - name: Deploy application
-        env:
-          KUBECONFIG: ${{ github.workspace }}/vcluster.yaml
+      - name: Deploy app
         run: |
           helm upgrade --install app ./helm/app \
-            --set image.repository=${{ env.REGISTRY }}/${{ steps.image.outputs.IMAGE_NAME }} \
-            --set image.tag=${{ steps.tag.outputs.IMAGE_TAG }} \
-            --set image.pullPolicy=Always \
+            --set image.repository=ghcr.io/${{ steps.vars.outputs.IMAGE_NAME }} \
+            --set image.tag=${{ steps.vars.outputs.IMAGE_TAG }} \
             --set imagePullSecrets[0].name=ghcr-secret \
             --wait \
             --timeout 10m
 
 # ─────────────────────────────────────────────
-# Validate Deployment
+# Validate
 # ─────────────────────────────────────────────
       - name: Wait for pods
-        env:
-          KUBECONFIG: ${{ github.workspace }}/vcluster.yaml
         run: |
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=mysql --timeout=300s
           kubectl wait --for=condition=Ready pod -l app=app-app --timeout=300s
@@ -145,25 +124,20 @@ jobs:
 # ─────────────────────────────────────────────
 # Integration Test
 # ─────────────────────────────────────────────
-      - name: Test Application
+      - name: Test app
         run: |
           NODE_IP=$(docker inspect vcluster.node.ci-cluster.worker-1 --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
-          echo "Node IP: $NODE_IP"
-          curl --retry 10 --retry-delay 5 http://$NODE_IP:30080 || exit 1
+          curl --retry 10 --retry-delay 5 http://$NODE_IP:30080
 
 # ─────────────────────────────────────────────
-# Debug On Failure
+# Debug on failure
 # ─────────────────────────────────────────────
-      - name: Debug (only if failure)
+      - name: Debug
         if: failure()
-        env:
-          KUBECONFIG: ${{ github.workspace }}/vcluster.yaml
         run: |
-          echo "=== Pods ==="
-          kubectl get pods -A
-          echo "=== Describe ==="
-          kubectl describe pods -A
-          echo "=== Logs ==="
+          kubectl cluster-info || true
+          kubectl get nodes || true
+          kubectl get pods -A || true
+          kubectl describe pods -A || true
           kubectl logs -l app=app-app --tail=100 || true
-          echo "=== Events ==="
-          kubectl get events -A --sort-by='.lastTimestamp'
+          kubectl get events -A --sort-by='.lastTimestamp' || true
