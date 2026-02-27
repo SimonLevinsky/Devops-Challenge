@@ -19,9 +19,9 @@ db:
 
 mysql:
   image:
-    registry: docker.io
-    repository: bitnami/mysql
-    tag: 8.0.36-debian-11-r2
+    registry: registry.k8s.io
+    repository: mysql
+    tag: "8.0"
   auth:
     rootPassword: rootpassword
     database: appdb

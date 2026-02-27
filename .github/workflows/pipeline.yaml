@@ -78,7 +78,6 @@ jobs:
           sudo modprobe overlay || true
           sudo modprobe bridge || true
           sudo modprobe br_netfilter || true
-          echo "=== Loaded modules ==="
           lsmod | grep -E "overlay|bridge|br_netfilter" || true
 
       - name: Set Docker as default driver
@@ -95,10 +94,18 @@ jobs:
           echo "=== Values file ==="
           cat /tmp/vcluster-values.yaml
           vcluster create ci-cluster --connect=false --values /tmp/vcluster-values.yaml
-          echo "=== vcluster list ==="
-          vcluster list
           echo "=== Docker containers after create ==="
           docker ps -a
+          echo "=== Configure containerd mirror on worker node ==="
+          docker exec vcluster.node.ci-cluster.worker-1 bash -c '
+            mkdir -p /etc/containerd/certs.d/docker.io
+            cat > /etc/containerd/certs.d/docker.io/hosts.toml << TOML
+            server = "https://registry-1.docker.io"
+            [host."https://mirror.gcr.io"]
+              capabilities = ["pull", "resolve"]
+            TOML
+            systemctl restart containerd || true
+          ' || true
 
       - name: Connect to vind cluster
         run: |
@@ -145,8 +152,19 @@ jobs:
             --set image.repository=${{ env.REGISTRY }}/${{ steps.image.outputs.IMAGE_NAME }} \
             --set image.tag=${{ steps.tag.outputs.IMAGE_TAG }} \
             --set image.pullPolicy=Always \
-            --wait \
-            --timeout 10m
+            --timeout 10m \
+            --debug || true
+
+      - name: Check pods immediately after deploy
+        run: |
+          echo "=== Pods ==="
+          kubectl get pods -A
+          echo "=== MySQL pod describe ==="
+          kubectl describe pod -l app.kubernetes.io/name=mysql || true
+          echo "=== App pod logs ==="
+          kubectl logs -l app=app-app --tail=50 || true
+          echo "=== Events ==="
+          kubectl get events --sort-by='.lastTimestamp' -A | tail -30
 
       - name: Debug - Check pod status
         if: always()
