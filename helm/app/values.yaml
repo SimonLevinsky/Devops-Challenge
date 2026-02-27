@@ -18,6 +18,10 @@ db:
   password: apppassword
 
 mysql:
+  image:
+    registry: docker.io
+    repository: bitnami/mysql
+    tag: 8.0.36-debian-11-r2
   auth:
     rootPassword: rootpassword
     database: appdb
