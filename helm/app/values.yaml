@@ -1,15 +1,18 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/simonlevinsky/app
-  tag: latest
-  pullPolicy: IfNotPresent
+  repository: ghcr.io/simonlevinsky/app   # Overridden in GitHub Actions
+  tag: latest                             # Overridden in GitHub Actions
+  pullPolicy: IfNotPresent                # Overridden to Always in CI
 
 service:
   type: NodePort
   port: 8080
   nodePort: 30080
 
+# ─────────────────────────────────────────────
+# Application DB Configuration
+# ─────────────────────────────────────────────
 db:
   host: app-mysql
   port: 3306
@@ -17,16 +20,32 @@ db:
   user: appuser
   password: apppassword
 
+# ─────────────────────────────────────────────
+# Bitnami MySQL Subchart Configuration
+# ─────────────────────────────────────────────
 mysql:
   image:
     registry: docker.io
     repository: bitnami/mysql
-    tag: "8.0.36-debian-12-r4"
+    tag: "8.0.36"   # ✅ FIXED (removed invalid -r4 tag)
+
   auth:
     rootPassword: rootpassword
     database: appdb
     username: appuser
     password: apppassword
+
   primary:
     persistence:
       enabled: false
+
+  # Optional but recommended for CI stability
+  architecture: standalone
+
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+    limits:
+      memory: 512Mi
+      cpu: 500m

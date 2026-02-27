@@ -18,13 +18,19 @@ jobs:
       packages: write
 
     steps:
+# ─────────────────────────────────────────────
+# Checkout
+# ─────────────────────────────────────────────
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ── Image name & tag ──────────────────────────────────────
+# ─────────────────────────────────────────────
+# Image Name & Tag
+# ─────────────────────────────────────────────
       - name: Set lowercase image name
         id: image
-        run: echo "IMAGE_NAME=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')/app" >> $GITHUB_OUTPUT
+        run: |
+          echo "IMAGE_NAME=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')/app" >> $GITHUB_OUTPUT
 
       - name: Set image tag based on branch
         id: tag
@@ -33,8 +39,10 @@ jobs:
           SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
           echo "IMAGE_TAG=${BRANCH}-${SHORT_SHA}" >> $GITHUB_OUTPUT
 
-      # ── Build & Push ──────────────────────────────────────────
-      - name: Log in to GitHub Container Registry
+# ─────────────────────────────────────────────
+# Docker Build & Push
+# ─────────────────────────────────────────────
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -51,95 +59,47 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ steps.image.outputs.IMAGE_NAME }}:${{ steps.tag.outputs.IMAGE_TAG }}
-            ${{ env.REGISTRY }}/${{ steps.image.outputs.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ── Install tools ─────────────────────────────────────────
+# ─────────────────────────────────────────────
+# Install kubectl, Helm & vCluster
+# ─────────────────────────────────────────────
       - name: Install kubectl
         run: |
           curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
           chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/kubectl
+          sudo mv kubectl /usr/local/bin/
 
-      - name: Install vCluster CLI (vind)
+      - name: Install Helm
+        run: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      - name: Install vCluster
         run: |
           curl -L -o vcluster "https://github.com/loft-sh/vcluster/releases/latest/download/vcluster-linux-amd64"
           chmod +x vcluster
-          sudo mv vcluster /usr/local/bin/vcluster
+          sudo mv vcluster /usr/local/bin/
 
-      - name: Install Helm
-        run: |
-          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-
-      # ── Provision Cluster ─────────────────────────────────────
-      - name: Load required kernel modules
-        run: |
-          sudo modprobe overlay || true
-          sudo modprobe bridge || true
-          sudo modprobe br_netfilter || true
-          lsmod | grep -E "overlay|bridge|br_netfilter" || true
-
-      - name: Set Docker as default driver
+# ─────────────────────────────────────────────
+# Create vCluster
+# ─────────────────────────────────────────────
+      - name: Use Docker driver
         run: vcluster use driver docker
 
-      - name: Write vcluster values file
+      - name: Create cluster
         run: |
-          python3 << 'PYEOF'
-          content = """experimental:
-            docker:
-              nodes:
-                - name: worker-1
-          """
-          with open('/tmp/vcluster-values.yaml', 'w') as f:
-              f.write(content)
-          PYEOF
-          echo "=== Values file ==="
-          cat /tmp/vcluster-values.yaml
+          vcluster create ci-cluster --connect=false --wait
 
-      - name: Create vind cluster
-        run: |
-          vcluster create ci-cluster --connect=false --values /tmp/vcluster-values.yaml
-          echo "=== vcluster list ==="
-          vcluster list
-          echo "=== Docker containers after create ==="
-          docker ps -a
-
-      - name: Configure containerd mirror on worker node
-        run: |
-          docker exec vcluster.node.ci-cluster.worker-1 bash -c '
-            mkdir -p /etc/containerd/certs.d/docker.io
-            cat > /etc/containerd/certs.d/docker.io/hosts.toml << TOML
-            server = "https://registry-1.docker.io"
-            [host."https://mirror.gcr.io"]
-              capabilities = ["pull", "resolve"]
-            TOML
-            systemctl restart containerd || true
-          ' || true
-
-      - name: Connect to vind cluster
+      - name: Connect to cluster
         run: |
           vcluster connect ci-cluster --background-proxy
           sleep 15
-          kubectl config view
-          kubectl get ns || true
-
-      - name: Wait for node to be ready
-        run: |
-          echo "Waiting for worker node..."
-          for i in $(seq 1 30); do
-            NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l)
-            if [ "$NODE_COUNT" -gt 0 ]; then
-              echo "✅ Node registered!"
-              kubectl get nodes
-              break
-            fi
-            echo "⏳ Attempt $i: No nodes yet, waiting 10s..."
-            sleep 10
-          done
           kubectl wait --for=condition=Ready nodes --all --timeout=300s
           kubectl get nodes
 
+# ─────────────────────────────────────────────
+# Create GHCR Secret
+# ─────────────────────────────────────────────
       - name: Create GHCR image pull secret
         run: |
           kubectl create secret docker-registry ghcr-secret \
@@ -147,14 +107,18 @@ jobs:
             --docker-username=${{ github.actor }} \
             --docker-password=${{ secrets.GITHUB_TOKEN }}
 
-      # ── Deploy ────────────────────────────────────────────────
-      - name: Add Bitnami Helm repo
-        run: helm repo add bitnami https://charts.bitnami.com/bitnami && helm repo update
+# ─────────────────────────────────────────────
+# Helm Deploy
+# ─────────────────────────────────────────────
+      - name: Add Bitnami repo
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
 
       - name: Update Helm dependencies
         run: helm dependency update ./helm/app
 
-      - name: Deploy Helm chart
+      - name: Deploy application
         run: |
           helm upgrade --install app ./helm/app \
             --set image.repository=${{ env.REGISTRY }}/${{ steps.image.outputs.IMAGE_NAME }} \
@@ -163,43 +127,35 @@ jobs:
             --wait \
             --timeout 10m
 
-      - name: Check pods after deploy
-        if: always()
+# ─────────────────────────────────────────────
+# Validate Deployment
+# ─────────────────────────────────────────────
+      - name: Wait for pods
+        run: |
+          kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=mysql --timeout=300s
+          kubectl wait --for=condition=Ready pod -l app=app-app --timeout=300s
+          kubectl get pods -A
+
+# ─────────────────────────────────────────────
+# Integration Test
+# ─────────────────────────────────────────────
+      - name: Test Application
+        run: |
+          NODE_IP=$(docker inspect vcluster.node.ci-cluster.worker-1 --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+          echo "Node IP: $NODE_IP"
+          curl --retry 10 --retry-delay 5 http://$NODE_IP:30080 || exit 1
+
+# ─────────────────────────────────────────────
+# Debug On Failure
+# ─────────────────────────────────────────────
+      - name: Debug (only if failure)
+        if: failure()
         run: |
           echo "=== Pods ==="
           kubectl get pods -A
-          echo "=== MySQL pod describe ==="
-          kubectl describe pod -l app.kubernetes.io/name=mysql || true
-          echo "=== App pod logs ==="
-          kubectl logs -l app=app-app --tail=50 || true
-          echo "=== Events ==="
-          kubectl get events --sort-by='.lastTimestamp' -A | tail -30
-
-      - name: Debug - Check pod status
-        if: always()
-        run: |
-          echo "=== All Pods ==="
-          kubectl get pods -A --show-labels
-          echo "=== All Services ==="
-          kubectl get svc -A
-          echo "=== Describe ALL pods ==="
+          echo "=== Describe ==="
           kubectl describe pods -A
+          echo "=== Logs ==="
+          kubectl logs -l app=app-app --tail=100 || true
           echo "=== Events ==="
-          kubectl get events --sort-by='.lastTimestamp' -A
-
-      - name: Debug - Network info
-        if: always()
-        run: |
-          echo "=== Docker containers ==="
-          docker ps
-          echo "=== vind container IP ==="
-          docker inspect vcluster.cp.ci-cluster | grep IPAddress || true
-          echo "=== Kubernetes nodes ==="
-          kubectl get nodes -o wide
-
-      # ── Test ──────────────────────────────────────────────────
-      - name: Get node IP and test
-        run: |
-          NODE_IP=$(docker inspect vcluster.node.ci-cluster.worker-1 --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
-          echo "Worker Node IP: $NODE_IP"
-          python3 scripts/test-app.py http://$NODE_IP:30080
+          kubectl get events -A --sort-by='.lastTimestamp'
