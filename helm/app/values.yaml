@@ -19,7 +19,7 @@ db:
 
 mysql:
   image:
-    registry: registry.k8s.io
+    registry: docker.io
     repository: mysql
     tag: "8.0"
   auth:

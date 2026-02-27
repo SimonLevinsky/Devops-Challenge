@@ -160,10 +160,11 @@ jobs:
             --set image.repository=${{ env.REGISTRY }}/${{ steps.image.outputs.IMAGE_NAME }} \
             --set image.tag=${{ steps.tag.outputs.IMAGE_TAG }} \
             --set image.pullPolicy=Always \
-            --timeout 10m \
-            --debug || true
+            --wait \
+            --timeout 10m
 
       - name: Check pods after deploy
+        if: always()
         run: |
           echo "=== Pods ==="
           kubectl get pods -A
