@@ -43,7 +43,7 @@ spec:
               command:
                 - bash
                 - -c
-                - "mysql -u root -prootpassword -e 'SELECT 1'"
+                - "mysql -u root -prootpassword --socket=/var/lib/mysql/mysql.sock -e 'SELECT 1'"
             initialDelaySeconds: 30
             periodSeconds: 10
             failureThreshold: 30
@@ -52,7 +52,7 @@ spec:
               command:
                 - bash
                 - -c
-                - "mysql -u root -prootpassword -e 'SELECT 1'"
+                - "mysql -u root -prootpassword --socket=/var/lib/mysql/mysql.sock -e 'SELECT 1'"
             initialDelaySeconds: 60
             periodSeconds: 20
             failureThreshold: 10
