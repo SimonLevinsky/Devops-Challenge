@@ -55,6 +55,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Re-tag and push MySQL image to GHCR
+        run: |
+          OWNER=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')
+          docker pull bitnami/mysql:8.0.36-debian-12-r4
+          docker tag bitnami/mysql:8.0.36-debian-12-r4 ghcr.io/${OWNER}/mysql:8.0.36
+          docker push ghcr.io/${OWNER}/mysql:8.0.36
+          echo "MYSQL_IMAGE=ghcr.io/${OWNER}/mysql:8.0.36" >> $GITHUB_ENV
+
       # ── Install tools ─────────────────────────────────────────
       - name: Install kubectl
         run: |
@@ -105,17 +113,6 @@ jobs:
           echo "=== Docker containers after create ==="
           docker ps -a
 
-      - name: Pre-pull images on worker node
-        run: |
-          echo "=== Pre-pulling bitnami/mysql on worker node ==="
-          docker exec vcluster.node.ci-cluster.worker-1 bash -c \
-            'ctr -n k8s.io images pull docker.io/bitnami/mysql:8.0.36-debian-12-r4'
-          echo "=== Pre-pulling app image on worker node ==="
-          docker exec vcluster.node.ci-cluster.worker-1 bash -c \
-            'ctr -n k8s.io images pull ghcr.io/${{ steps.image.outputs.IMAGE_NAME }}:${{ steps.tag.outputs.IMAGE_TAG }}'
-          echo "=== Images on worker node ==="
-          docker exec vcluster.node.ci-cluster.worker-1 ctr -n k8s.io images ls
-
       - name: Connect to vind cluster
         run: |
           vcluster connect ci-cluster --background-proxy
@@ -155,10 +152,15 @@ jobs:
 
       - name: Deploy Helm chart
         run: |
+          OWNER=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')
           helm upgrade --install app ./helm/app \
             --set image.repository=${{ env.REGISTRY }}/${{ steps.image.outputs.IMAGE_NAME }} \
             --set image.tag=${{ steps.tag.outputs.IMAGE_TAG }} \
             --set image.pullPolicy=IfNotPresent \
+            --set mysql.image.registry=ghcr.io \
+            --set mysql.image.repository=${OWNER}/mysql \
+            --set mysql.image.tag=8.0.36 \
+            --set mysql.image.pullSecrets[0]=ghcr-secret \
             --wait \
             --timeout 10m
 
