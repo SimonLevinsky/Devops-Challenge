@@ -150,7 +150,6 @@ jobs:
             --set image.repository=${{ env.REGISTRY }}/${{ steps.image.outputs.IMAGE_NAME }} \
             --set image.tag=${{ steps.tag.outputs.IMAGE_TAG }} \
             --set image.pullPolicy=IfNotPresent \
-            --set mysql.image=ghcr.io/${OWNER}/mysql:8.0 \
             --wait \
             --timeout 10m
 
@@ -165,6 +164,12 @@ jobs:
           kubectl logs -l app=app-app --tail=50 || true
           echo "=== Events ==="
           kubectl get events --sort-by='.lastTimestamp' -A | tail -30
+
+      - name: Debug - MySQL logs
+        if: always()
+        run: |
+          echo "=== MySQL logs ==="
+          kubectl logs mysql-0 --tail=80 || true
 
       - name: Debug - Check pod status
         if: always()

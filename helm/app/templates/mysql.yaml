@@ -43,7 +43,16 @@ spec:
               command:
                 - bash
                 - -c
-                - "mysqladmin ping -u root -prootpassword --silent"
-            initialDelaySeconds: 60
+                - "mysql -u root -prootpassword -e 'SELECT 1'"
+            initialDelaySeconds: 30
             periodSeconds: 10
-            failureThreshold: 20
+            failureThreshold: 30
+          livenessProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - "mysql -u root -prootpassword -e 'SELECT 1'"
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 10
