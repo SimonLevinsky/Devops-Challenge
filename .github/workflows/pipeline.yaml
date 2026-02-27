@@ -62,52 +62,36 @@ jobs:
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/kubectl
 
-      - name: Install vCluster CLI (vind)
+      - name: Install KinD
         run: |
-          curl -L -o vcluster "https://github.com/loft-sh/vcluster/releases/latest/download/vcluster-linux-amd64"
-          chmod +x vcluster
-          sudo mv vcluster /usr/local/bin/vcluster
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
 
       - name: Install Helm
         run: |
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
       # ── Provision Cluster ─────────────────────────────────────
-      - name: Set Docker as default driver
-        run: vcluster use driver docker
-
-      - name: Create vind cluster
+      - name: Create KinD cluster
         run: |
-          vcluster create ci-cluster --connect=false --add-node worker-1
-          echo "=== vcluster list ==="
-          vcluster list
-          echo "=== Docker containers after create ==="
-          docker ps -a
-
-      - name: Connect to vind cluster
-        run: |
-          vcluster connect ci-cluster --background-proxy
-          sleep 10
-          echo "=== kubeconfig after connect ==="
-          kubectl config view
-          echo "=== test kubectl ==="
-          kubectl get ns || true
+          cat > /tmp/kind-config.yaml << 'EOF'
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          nodes:
+            - role: control-plane
+              extraPortMappings:
+                - containerPort: 30080
+                  hostPort: 30080
+                  protocol: TCP
+          EOF
+          kind create cluster --config /tmp/kind-config.yaml
+          kubectl get nodes
 
       - name: Wait for cluster to be ready
         run: |
-          echo "Waiting for cluster to be ready..."
-          for i in $(seq 1 30); do
-            NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l)
-            if [ "$NODE_COUNT" -gt 0 ]; then
-              echo "✅ Nodes are registered!"
-              kubectl get nodes
-              break
-            fi
-            echo "⏳ Attempt $i: No nodes yet, waiting 10s..."
-            sleep 10
-          done
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
           kubectl get nodes
-          kubectl get pods -A || true
 
       - name: Create GHCR image pull secret
         run: |
@@ -115,11 +99,6 @@ jobs:
             --docker-server=ghcr.io \
             --docker-username=${{ github.actor }} \
             --docker-password=${{ secrets.GITHUB_TOKEN }}
-
-      - name: Verify cluster is running
-        run: |
-          kubectl get nodes
-          docker ps -a
 
       # ── Deploy ────────────────────────────────────────────────
       - name: Add Bitnami Helm repo
@@ -134,47 +113,9 @@ jobs:
             --set image.repository=${{ env.REGISTRY }}/${{ steps.image.outputs.IMAGE_NAME }} \
             --set image.tag=${{ steps.tag.outputs.IMAGE_TAG }} \
             --set image.pullPolicy=Always \
-            --timeout 10m \
-            --debug
-
-      - name: Wait 30 seconds for pods to start
-        run: sleep 30
-
-      - name: Debug - Check pod status
-        if: always()
-        run: |
-          echo "=== All Pods ==="
-          kubectl get pods -A --show-labels
-          echo "=== All Services ==="
-          kubectl get svc -A
-          echo "=== Describe ALL pods ==="
-          kubectl describe pods -A
-          echo "=== Helm Status ==="
-          helm status app || true
-          echo "=== Helm History ==="
-          helm history app || true
-          echo "=== Events ==="
-          kubectl get events --sort-by='.lastTimestamp' -A
-
-      - name: Debug - Network info
-        if: always()
-        run: |
-          echo "=== Docker containers ==="
-          docker ps
-          echo "=== Docker networks ==="
-          docker network ls
-          echo "=== vind container IP ==="
-          docker inspect vcluster.cp.ci-cluster | grep IPAddress || true
-          echo "=== Kubernetes nodes ==="
-          kubectl get nodes -o wide
-          echo "=== All services with ports ==="
-          kubectl get svc -A
+            --wait \
+            --timeout 10m
 
       # ── Test ──────────────────────────────────────────────────
-      - name: Get node IP and test
-        run: |
-          echo "=== Nodes ==="
-          kubectl get nodes -o wide
-          NODE_IP=$(docker inspect vcluster.cp.ci-cluster --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
-          echo "Node IP: $NODE_IP"
-          python3 scripts/test-app.py http://$NODE_IP:30080
+      - name: Run application test
+        run: python3 scripts/test-app.py http://localhost:30080
